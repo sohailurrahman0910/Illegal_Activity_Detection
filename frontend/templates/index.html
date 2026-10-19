@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YOLO Prediction</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://kit.fontawesome.com/9d9b446610.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      font-family: sans-serif;
+    }
+
+    /* ---------- Top bar ---------- */
+    .navbar {
+      background: white;
+      border-bottom: 1px solid #e7e7e7;
+    }
+    .brand { font-size: 20px; font-weight: bold; }
+    .brand i { color: #38bead; }
+
+    .btn-camera {
+      height: 35px;
+      padding: 0 10px;
+      border: 1px solid #cfcfcf;
+      border-radius: 5px;
+      background: transparent;
+      color: #303030;
+    }
+
+    /* ---------- Page layout ---------- */
+    .layout { display: flex; height: 100vh; }
+
+    .sidebar {
+      width: 16%;
+      background: white;
+    }
+    .sidebar .list-group-item {
+      border: none;
+      font-size: 14px;
+      color: #202020;
+    }
+
+    .center {
+      width: 60%;
+      padding-left: 0.5%;
+      background: #f0f0f0;
+      overflow-y: auto;
+      text-align: center;
+    }
+    .video-box {
+      height: 600px;
+      margin: 20px 0 50px;
+      background: white;
+    }
+    .video-box img { margin-top: 50px; max-width: 100%; }
+    .chart-box {
+      height: 400px;
+      background: white;
+    }
+
+    .right {
+      width: 24%;
+      padding: 1%;
+      background: white;
+      overflow-y: auto;
+    }
+    .right h1 {
+      padding-top: 50px;
+      font-size: 30px;
+      font-weight: bold;
+    }
+    .right th { font-size: 14px; background: #d1d1d1; }
+    .right td { font-size: 14px; }
+
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-thumb { background: #f0f0f0; border-radius: 10px; }
+  </style>
+</head>
+
+<body>
+  <!-- Top bar -->
+  <nav class="navbar">
+    <div class="container-fluid">
+      <span class="brand">
+        <i class="fa-solid fa-eye-low-vision me-2"></i>YOLO Prediction
+      </span>
+      <div>
+        <button class="btn-camera" onclick="startCamera()">Open Camera</button>
+        <button class="btn-camera" onclick="stopCamera()">Stop</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <!-- Left menu -->
+    <div class="sidebar">
+      <ul class="list-group">
+        <li class="list-group-item ms-3 mt-3"><i class="fa-solid fa-gauge me-1"></i>Dashboard</li>
+        <li class="list-group-item ms-3"><i class="fa-solid fa-bars-progress me-1"></i>Detection</li>
+      </ul>
+    </div>
+
+    <!-- Video + chart -->
+    <div class="center">
+      <div class="video-box">
+        <img id="video" alt="">
+      </div>
+      <div class="chart-box">
+        <canvas id="classChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Latest detections -->
+    <div class="right">
+      <h1>Latest Detection</h1>
+      <p>Last Image Detection</p>
+      <table class="table" id="predictionTable">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Class</th>
+            <th>Accuracy</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const REFRESH_MS = 3000;   // how often the table and chart update
+    let classChart = null;
+
+    // ---------- Camera ----------
+    async function startCamera() {
+      const res = await fetch('/start_video');
+      const data = await res.json();
+      if (data.message === 'Video started') {
+        document.getElementById('video').src = '/video_feed';
+      }
+    }
+
+    async function stopCamera() {
+      const res = await fetch('/stop_video');
+      const data = await res.json();
+      if (data.message === 'Video stopped') {
+        document.getElementById('video').src = '';
+      }
+    }
+
+    // ---------- Table ----------
+    async function updateTable() {
+      try {
+        const res = await fetch('/predictions');
+        const predictions = await res.json();
+
+        const body = document.querySelector('#predictionTable tbody');
+        body.innerHTML = predictions.map(p => `
+          <tr>
+            <td>${p.id}</td>
+            <td>${p.name}</td>
+            <td>${p.accuracy}</td>
+            <td>${p.time.split(' ')[1]}</td>
+          </tr>
+        `).join('');
+      } catch (err) {
+        console.error('Table update failed:', err);
+      }
+    }
+
+    // ---------- Chart ----------
+    async function updateChart() {
+      try {
+        const res = await fetch('/class-counts');
+        const data = await res.json();
+        const labels = data.map(item => item.name);
+        const counts = data.map(item => item.count);
+
+        if (classChart) {
+          classChart.data.labels = labels;
+          classChart.data.datasets[0].data = counts;
+          classChart.update();
+          return;
+        }
+
+        classChart = new Chart(document.getElementById('classChart'), {
+          type: 'bar',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: 'Predicted Classes',
+              data: counts,
+              backgroundColor: 'rgba(75, 192, 192, 0.2)',
+              borderColor: 'rgba(75, 192, 192, 1)',
+              borderWidth: 1
+            }]
+          },
+          options: { scales: { y: { beginAtZero: true } } }
+        });
+      } catch (err) {
+        console.error('Chart update failed:', err);
+      }
+    }
+
+    // ---------- Start ----------
+    function refreshAll() {
+      updateTable();
+      updateChart();
+    }
+
+    window.onload = () => {
+      refreshAll();
+      setInterval(refreshAll, REFRESH_MS);
+    };
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
